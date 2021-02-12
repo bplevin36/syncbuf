@@ -3,9 +3,7 @@ name = "syncbuf"
 version = "0.1.0"
 authors = ["Benjamin Levin <bplevin36@gmail.com>"]
 edition = "2018"
-description = "An append-only buffer with lock-free access and constant-time indexing"
+license = "MIT"
+description = "An append-only buffer with lock-free thread-safety and constant-time indexing"
 categories = ["concurrency", "data-structures"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+keywords = ["lock-free"]
