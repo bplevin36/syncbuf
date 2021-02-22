@@ -34,17 +34,16 @@ use core::sync::atomic::{AtomicUsize, AtomicPtr, Ordering, spin_loop_hint};
 /// assert_eq!(&buf_arc[2], "bat");
 /// ```
 
-#[derive(Debug)]
 pub struct Syncbuf<T> {
     // INVARIANTS:
     // - indices before `len` must have valid elements in them and never be mutated
     // - indices after `working_len` are uninitialized
     // - indices between `len` and `working_len` are in the process of being
     //   written and must not be accessed outside of the writing thread
-    capacity: usize,
-    len: AtomicUsize,
-    working_len: AtomicUsize,
-    buf: AtomicPtr<T>,
+    pub(crate) capacity: usize,
+    pub(crate) len: AtomicUsize,
+    pub(crate) working_len: AtomicUsize,
+    pub(crate) buf: AtomicPtr<T>,
 }
 
 impl<T> Syncbuf<T> {
@@ -67,10 +66,17 @@ impl<T> Syncbuf<T> {
             return Err(elem);
         }
 
+        // during tests, slow down the critical path here to force more thread contention
+        #[cfg(test)]
+        {
+            extern crate std;
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
         // SAFETY: we have already checked that `idx` is within the
         // allocation and we will never write to the same `idx` twice
         unsafe {
-            let location = self.buf.load(Ordering::Relaxed).add(idx) ;
+            let location = self.buf.load(Ordering::Relaxed).add(idx);
             location.write(elem);
         }
 
@@ -107,9 +113,9 @@ impl<T> Syncbuf<T> {
 
     /// Returns the last element and its index, if there is one.
     pub fn last_item(&self) -> Option<(usize, &T)> {
-        match self.len() {
+        match self.len.load(Ordering::SeqCst) {
             0 => None,
-            i => self.get(i).map(|e| (i, e)),
+            i => self.get(i-1).map(|e| (i-1, e)),
         }
     }
 
@@ -195,6 +201,20 @@ impl<T> Drop for Syncbuf<T> {
     }
 }
 
+impl<T: core::fmt::Debug> core::fmt::Debug for Syncbuf<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut i = self.iter();
+        write!(f, "Syncbuf {} {{ ", self.capacity)?;
+        if let Some(elem) = i.next() {
+            write!(f, "{:?}", elem)?;
+            for elem in i {
+                write!(f, ", {:?}", elem)?;
+            }
+        }
+        write!(f, " }}")
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -244,7 +264,7 @@ mod tests {
         use std::thread::{sleep, JoinHandle};
         use std::time::Duration;
 
-        const THREADS: usize = 50;
+        const THREADS: usize = 20;
         const PUSHES: usize = 200;
 
         let buf: Syncbuf<i32> = Syncbuf::with_capacity(100000);
@@ -254,10 +274,10 @@ mod tests {
             let buf_arc = Arc::clone(&buf_arc);
             children.push(std::thread::spawn(move || {
                 for _ in 0..PUSHES {
-                    sleep(Duration::from_micros(3));
+                    sleep(Duration::from_millis(2));
                     let idx = buf_arc.push(i).unwrap();
                     let i_ref = buf_arc.get(idx).unwrap();
-                    sleep(Duration::from_millis(10));
+                    sleep(Duration::from_millis(2));
                     // our reference still works after concurrent pushes
                     assert_eq!(*i_ref, i);
                 }
