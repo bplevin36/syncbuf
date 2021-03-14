@@ -2,8 +2,6 @@ use core::mem::size_of;
 use core::sync::atomic::{AtomicUsize, Ordering, spin_loop_hint};
 use crate::syncbuf::Syncbuf;
 
-const FIRST_CHUNK_SIZE: usize = 16;
-
 /// Growable, thread-safe buffer that allows adding new elements
 /// without invalidating shared references.
 ///
@@ -19,6 +17,8 @@ const FIRST_CHUNK_SIZE: usize = 16;
 ///
 /// `Synclist` has the same size constraint as [`Vec`]; attempting to add more
 /// than `isize::MAX` elements will panic.
+
+const FIRST_CHUNK_SIZE: usize = 16;
 
 #[derive(Debug)]
 pub struct Synclist<T> {

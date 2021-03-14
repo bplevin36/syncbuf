@@ -1,6 +1,6 @@
 # Syncbuf
 
-A small library implementing an append-only, thread-safe, lock-free buffer.
+A small library of append-only, thread-safe, lock-free data structures.
 
 
 [![Crates.io](https://img.shields.io/crates/v/syncbuf)](https://crates.io/crates/syncbuf)
