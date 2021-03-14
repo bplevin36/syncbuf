@@ -1,5 +1,7 @@
 extern crate alloc;
 use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::ops::{Deref, Index};
 use core::mem::{ManuallyDrop, size_of};
 use core::sync::atomic::{AtomicUsize, AtomicPtr, Ordering, spin_loop_hint};
 
@@ -82,10 +84,13 @@ impl<T> Syncbuf<T> {
 
         // It is possible the element we just wrote was more than 1 past `len`
         // if this is the case, we have to wait until any concurrent pushes finish
-        while self.len.compare_and_swap(idx, idx + 1, Ordering::SeqCst) != idx {
-            spin_loop_hint();
-        }
-        Ok(idx)
+        let new_idx = loop {
+            match self.len.compare_exchange_weak(idx, idx + 1, Ordering::SeqCst, Ordering::Acquire) {
+                Ok(new_idx) => break new_idx,
+                Err(_) => spin_loop_hint(),
+            }
+        };
+        Ok(new_idx)
     }
 
     /// Gets a reference to an element.
@@ -129,7 +134,7 @@ impl<T> Syncbuf<T> {
         self.capacity
     }
 
-    /// Returns an `Iterator` over the contents of the buffer
+    /// Returns an `Iterator` over the contents of the buffer. This iterator will observe concurrent pushes.
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             idx: 0,
@@ -179,11 +184,44 @@ impl<'i, T> Iterator for Iter<'i, T> {
     }
 }
 
-impl<T> core::ops::Index<usize> for Syncbuf<T> {
-    type Output = T;
+impl<T, I> Index<I> for Syncbuf<T>
+    where I: core::slice::SliceIndex<[T]> {
 
-    fn index(&self, index: usize) -> &Self::Output {
-        self.get(index).expect("Index out-of-bounds")
+    type Output = I::Output;
+
+    fn index(&self, index: I) -> &Self::Output {
+        Index::index(&**self, index)
+    }
+}
+
+impl<T> Deref for Syncbuf<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        let ptr = self.buf.load(Ordering::Relaxed);
+        let len = self.len();
+        unsafe {
+            core::slice::from_raw_parts(ptr, len)
+        }
+    }
+}
+
+impl<T> Borrow<[T]> for Syncbuf<T> {
+    fn borrow(&self) -> &[T] {
+        &self[..]
+    }
+}
+
+impl<T> Into<Vec<T>> for Syncbuf<T> {
+    fn into(self) -> Vec<T> {
+        let sb = ManuallyDrop::new(self);
+        unsafe {
+            Vec::from_raw_parts(
+                sb.buf.load(Ordering::Relaxed),
+                sb.len(),
+                sb.capacity,
+            )
+        }
     }
 }
 
@@ -221,7 +259,8 @@ mod tests {
     use super::*;
     use alloc::vec;
     extern crate std;
-    use alloc::string::{String, ToString};
+    use alloc::borrow::ToOwned;
+    use alloc::string::String;
     #[test]
     fn push() {
         let buf: Syncbuf<usize> = Syncbuf::with_capacity(4);
@@ -234,9 +273,9 @@ mod tests {
     #[test]
     fn refs_not_invalidated() {
         let buf: Syncbuf<String> = Syncbuf::with_capacity(4);
-        assert_eq!(buf.push("held".to_string()), Ok(0));
+        assert_eq!(buf.push("held".to_owned()), Ok(0));
         let held = buf.get(0).unwrap();
-        assert_eq!(buf.push("added".to_string()), Ok(1));
+        assert_eq!(buf.push("added".to_owned()), Ok(1));
         assert_eq!(held, "held");
     }
 
@@ -250,7 +289,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Index out-of-bounds")]
+    fn into_vec() {
+        let buf: Syncbuf<_> = vec!["bingo".to_owned(), "bango".to_owned(), "bongo".to_owned()].into();
+        assert_eq!(buf[2], "bongo");
+        let buf_vec: Vec<String> = buf.into();
+        assert_eq!(buf_vec[2], "bongo");
+        let buf2: Syncbuf<_> = buf_vec.into();
+        assert_eq!(buf2.len(), 3);
+        assert_eq!(buf2[1], "bango");
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
     fn index() {
         let buf: Syncbuf<_> = vec!["6", "9"].into();
         assert_eq!(buf[0], "6");
