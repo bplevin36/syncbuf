@@ -1,9 +1,10 @@
 extern crate alloc;
 use alloc::vec::Vec;
 use core::borrow::Borrow;
+use core::hint::spin_loop;
 use core::ops::{Deref, Index};
 use core::mem::{ManuallyDrop, size_of};
-use core::sync::atomic::{AtomicUsize, AtomicPtr, Ordering, spin_loop_hint};
+use core::sync::atomic::{AtomicUsize, AtomicPtr, Ordering};
 
 /// Fixed-size, thread-safe buffer that allows adding new
 /// elements without invalidating shared references
@@ -87,7 +88,7 @@ impl<T> Syncbuf<T> {
         let new_idx = loop {
             match self.len.compare_exchange_weak(idx, idx + 1, Ordering::SeqCst, Ordering::Acquire) {
                 Ok(new_idx) => break new_idx,
-                Err(_) => spin_loop_hint(),
+                Err(_) => spin_loop(),
             }
         };
         Ok(new_idx)
