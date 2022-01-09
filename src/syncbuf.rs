@@ -136,8 +136,8 @@ impl<T> Syncbuf<T> {
     }
 
     /// Returns an `Iterator` over the contents of the buffer. This iterator will observe concurrent pushes.
-    pub fn iter(&self) -> Iter<'_, T> {
-        Iter {
+    pub fn iter(&self) -> BufIter<'_, T> {
+        BufIter {
             idx: 0,
             orig: self,
         }
@@ -163,7 +163,7 @@ impl<T> From<Vec<T>> for Syncbuf<T> {
 }
 
 /// Iterator over a `Syncbuf`'s contents
-pub struct Iter<'i, T: 'i> {
+pub struct BufIter<'i, T: 'i> {
     // We don't just build a `std::slice::Iter` from the underlying buffer
     // because that would require setting the bounds when the iterator is
     // created, making it unable to observe concurrent pushes
@@ -171,7 +171,7 @@ pub struct Iter<'i, T: 'i> {
     idx: usize,
 }
 
-impl<'i, T> Iterator for Iter<'i, T> {
+impl<'i, T> Iterator for BufIter<'i, T> {
     type Item = &'i T;
 
     fn next(&mut self) -> Option<Self::Item> {
