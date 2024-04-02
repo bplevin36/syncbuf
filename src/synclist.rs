@@ -1,7 +1,7 @@
+use crate::syncbuf::Syncbuf;
 use core::hint::spin_loop;
 use core::mem::size_of;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use crate::syncbuf::Syncbuf;
 
 /// Growable, thread-safe buffer that allows adding new elements
 /// without invalidating shared references.
@@ -65,7 +65,7 @@ impl<T> Synclist<T> {
         // TODO: investigate if an optimization is possible here to have the first few chunks
         // contiguous within a single allocation when `capacity` > FIRST_CHUNK_SIZE
         capacity = core::cmp::max(capacity, FIRST_CHUNK_SIZE);
-        let num_chunks_initial = Synclist::<T>::index_chunk(capacity-1) + 1;
+        let num_chunks_initial = Synclist::<T>::index_chunk(capacity - 1) + 1;
         for i in 0..num_chunks_initial {
             let chunk = Syncbuf::with_capacity(Synclist::<T>::chunk_size(i));
             match buf.push(chunk) {
@@ -146,7 +146,12 @@ impl<T> Synclist<T> {
                 // if we fail, that means this chunk is full
                 Err(elem) => {
                     // Attempt to acquire the pseudo-lock on adding a chunk
-                    match self.last_chunk.compare_exchange(chunk_idx, chunk_idx+1, Ordering::SeqCst, Ordering::SeqCst) {
+                    match self.last_chunk.compare_exchange(
+                        chunk_idx,
+                        chunk_idx + 1,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    ) {
                         Ok(_) => {
                             // during tests, slow down the critical path here to force more thread contention
                             #[cfg(test)]
@@ -154,24 +159,24 @@ impl<T> Synclist<T> {
                                 extern crate std;
                                 std::thread::sleep(std::time::Duration::from_millis(1000));
                             }
-                            match self.buf.get(chunk_idx+1) {
+                            match self.buf.get(chunk_idx + 1) {
                                 Some(chunk) => {
                                     // we already had another chunk allocated here
                                     match chunk.push(elem) {
                                         // this is the rare case discussed below
                                         Err(elem) => return self.push(elem),
-                                        Ok(i) => (chunk_idx+1, i),
+                                        Ok(i) => (chunk_idx + 1, i),
                                     }
-                                },
+                                }
                                 None => {
                                     // we need to do the push
                                     self.push_chunk_with_capacity_and_elem(
-                                        Synclist::<T>::chunk_size(chunk_idx+1),
+                                        Synclist::<T>::chunk_size(chunk_idx + 1),
                                         elem,
                                     )
                                 }
                             }
-                        },
+                        }
                         Err(_) => {
                             // this means another thread already added a chunk
                             // so let's try to use it
@@ -183,7 +188,7 @@ impl<T> Synclist<T> {
                                     // somehow was completely filled before this thread got to it.
                                     // This is so unlikely that the simplest fix is to try again
                                     // recursively
-                                    return self.push(elem)
+                                    return self.push(elem);
                                 }
                             }
                         }
@@ -202,6 +207,12 @@ impl<T> core::ops::Index<usize> for Synclist<T> {
     }
 }
 
+impl<T> core::default::Default for Synclist<T> {
+    fn default() -> Self {
+        Synclist::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,8 +223,8 @@ mod tests {
     #[test]
     fn index_fns() {
         assert_eq!(Synclist::<i32>::chunk_size(0), FIRST_CHUNK_SIZE);
-        assert_eq!(Synclist::<i32>::chunk_size(1), FIRST_CHUNK_SIZE*2);
-        assert_eq!(Synclist::<i32>::chunk_size(2), FIRST_CHUNK_SIZE*4);
+        assert_eq!(Synclist::<i32>::chunk_size(1), FIRST_CHUNK_SIZE * 2);
+        assert_eq!(Synclist::<i32>::chunk_size(2), FIRST_CHUNK_SIZE * 4);
         let mut index = 0;
 
         for chunk in 0..20 {
@@ -227,13 +238,17 @@ mod tests {
 
             // Each index happens after its chunk start and before its chunk end
             assert!(index >= Synclist::<i32>::chunk_start(chunk_id));
-            assert!(index < Synclist::<i32>::chunk_start(chunk_id) + Synclist::<i32>::chunk_size(chunk_id));
+            assert!(
+                index
+                    < Synclist::<i32>::chunk_start(chunk_id)
+                        + Synclist::<i32>::chunk_size(chunk_id)
+            );
         }
     }
 
     #[test]
     fn simple() {
-        let list = Synclist::<String>::new();
+        let list = Synclist::<String>::default();
         list.push("foo".to_string());
         list.push("bar".to_string());
         assert_eq!(list.len(), 2);
@@ -243,7 +258,7 @@ mod tests {
 
     #[test]
     fn refs_not_invalidated() {
-        let list = Synclist::<String>::new();
+        let list = Synclist::<String>::default();
         list.push("foo".to_string());
         let foo_ref = &list[0];
         list.push("bar".to_string());
@@ -284,6 +299,4 @@ mod tests {
         std::println!("{:?}", buf_arc);
         assert_eq!(buf_arc.len(), THREADS * PUSHES);
     }
-
-
 }
