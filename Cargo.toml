@@ -8,3 +8,16 @@ description = "Append-only data structures with lock-free thread-safety and cons
 categories = ["concurrency", "data-structures", "no-std"]
 keywords = ["lock-free"]
 repository = "https://github.com/bplevin36/syncbuf"
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] }
+crossbeam = "0.8"
+rand = "0.8"
+parking_lot = "0.11"
+
+[lib]
+bench = false
+
+[[bench]]
+name = "bench_syncbuf"
+harness = false

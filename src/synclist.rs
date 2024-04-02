@@ -1,6 +1,7 @@
 use crate::syncbuf::Syncbuf;
+use core::hint::spin_loop;
 use core::mem::size_of;
-use core::sync::atomic::{spin_loop_hint, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// Growable, thread-safe buffer that allows adding new elements
 /// without invalidating shared references.
@@ -89,7 +90,7 @@ impl<T> Synclist<T> {
             let last_idx = self.last_chunk.load(Ordering::SeqCst);
             match self.buf.get(last_idx) {
                 Some(chunk) => break (last_idx, chunk),
-                None => spin_loop_hint(),
+                None => spin_loop(),
             }
         }
     }
